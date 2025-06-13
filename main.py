@@ -1,36 +1,38 @@
 import os
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
 )
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-# Store basic user state
-user_state = {}
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome! Send teams like this:\n\nManchester United vs Liverpool")
+    await update.message.reply_text("Welcome! Send me 'Team A vs Team B' to predict the winner.")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.lower()
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Send me a message like 'Arsenal vs Chelsea' to get a prediction.")
 
-    if " vs " in text:
-        user_state[update.effective_chat.id] = {"teams": text}
-        await update.message.reply_text("Are they in the same league? (yes or no)")
-    elif text in ["yes", "no"] and update.effective_chat.id in user_state:
-        user_state[update.effective_chat.id]["same_league"] = text
-        await update.message.reply_text(
-            "Now send team stats like this:\n\n"
-            "Team A:\nTable 2\nAvg goal 2.1\nAvg conceded 1.0\nHead to head win 2 lose 1 draw 1\nForm WWDDL\n\n"
-            "Team B:\nTable 5\nAvg goal 1.6\nAvg conceded 1.3\nForm WLDDL"
-        )
+async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message.text
+    if " vs " in message.lower():
+        team1, team2 = message.split(" vs ")
+        team1 = team1.strip().title()
+        team2 = team2.strip().title()
+        # This is a placeholder; you can improve this later
+        prediction = f"🔮 Prediction:\n{team1} vs {team2}\nWinner: {team1} (for example)"
+        await update.message.reply_text(prediction)
     else:
-        await update.message.reply_text("🔮 Prediction: Based on these stats, Team A may have an edge.\n(More logic coming soon)")
-
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        await update.message.reply_text("Please send in format like: Arsenal vs Chelsea")
 
 if __name__ == "__main__":
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, predict))
+
+    print("✅ Bot is running...")
     app.run_polling()
