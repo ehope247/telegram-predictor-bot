@@ -1,36 +1,17 @@
-import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import os
 
-# Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Your Bot Token
-TOKEN = os.getenv("BOT_TOKEN")
-
-# Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Welcome! Send me team stats and I'll predict the match result.")
+    await update.message.reply_text("Welcome! Send me stats of two teams and I’ll predict the match outcome.")
 
-# Message handler
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    # Dummy logic for now
-    prediction = "🔮 I predict Team A will win or draw based on the stats you gave."
-    await update.message.reply_text(prediction)
+async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Simple dummy logic for now
+    await update.message.reply_text("Prediction: Team A will win or it’ll be over 2.5 goals (sample response).")
 
-# Main function
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    logger.info("Bot is starting...")
-    app.run_polling()
+app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("predict", predict))
 
 if __name__ == "__main__":
-    main()
+    app.run_polling()
