@@ -22,9 +22,7 @@ def home():
     return "Bot is running!"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Welcome to Football Predictor Bot! ⚽️
-Please enter the name of Team 1:")
-    return TEAM1
+    await update.message.reply_text("Welcome to Football Match Predictor Bot! Please enter the name of Team A.")
 
 async def team1(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['team1'] = update.message.text
