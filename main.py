@@ -1,90 +1,108 @@
+import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+    ConversationHandler,
+)
+import os
+from dotenv import load_dotenv
 
-# Start command
+load_dotenv()
+
+# Enable logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
+
+# Conversation states
+(
+    TEAM_NAMES,
+    LEAGUE_STATUS,
+    AVG_GOALS,
+    HEAD_TO_HEAD,
+    FORM,
+    PREDICT,
+) = range(6)
+
+# Store user data
+user_data_store = {}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Welcome to Football Predictor Bot!\n\n"
-        "Please enter match details in this format:\n\n"
-        "Team 1: Chelsea\n"
-        "Team 2: Arsenal\n"
-        "League Importance: High\n"
-        "Avg Goals Scored: 1.8, 2.0\n"
-        "Avg Goals Conceded: 1.2, 1.4\n"
-        "Head to Head: Chelsea 2-1 Arsenal\n"
-        "Home Form: W W D L W\n"
-        "Away Form: L D W W L"
+    await update.message.reply_text("Welcome! Let's start a match prediction.\n\nWhat are the names of the two teams? (e.g., Team A vs Team B)")
+    return TEAM_NAMES
+
+async def get_team_names(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_store[update.effective_user.id] = {"teams": update.message.text}
+    await update.message.reply_text("What is the league status of both teams? (e.g., Team A: 1st, Team B: 5th)")
+    return LEAGUE_STATUS
+
+async def get_league_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_store[update.effective_user.id]["league"] = update.message.text
+    await update.message.reply_text("What is the average number of goals scored/conceded? (e.g., Team A: 1.5/1.0, Team B: 1.2/1.3)")
+    return AVG_GOALS
+
+async def get_avg_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_store[update.effective_user.id]["avg_goals"] = update.message.text
+    await update.message.reply_text("What is the head-to-head record? (e.g., Team A won 3, Team B won 1, 2 draws)")
+    return HEAD_TO_HEAD
+
+async def get_head_to_head(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_store[update.effective_user.id]["h2h"] = update.message.text
+    await update.message.reply_text("What is the recent form of both teams? (e.g., Team A: WWLDW, Team B: LLWDD)")
+    return FORM
+
+async def get_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_store[update.effective_user.id]["form"] = update.message.text
+
+    data = user_data_store[update.effective_user.id]
+    prediction = make_prediction(data)
+
+    await update.message.reply_text(f"✅ Prediction Complete:\n\n{prediction}")
+    return ConversationHandler.END
+
+def make_prediction(data):
+    # This is placeholder logic — you can customize it
+    result = (
+        f"Teams: {data['teams']}\n"
+        f"League Status: {data['league']}\n"
+        f"Avg Goals: {data['avg_goals']}\n"
+        f"Head-to-Head: {data['h2h']}\n"
+        f"Form: {data['form']}\n\n"
+        f"🔮 Based on this info, it's likely to be a tight match. Slight edge to the better-form team."
     )
+    return result
 
-# Function to score form string
-def score_form(form_str):
-    score_map = {'W': 3, 'D': 1, 'L': 0}
-    results = form_str.strip().upper().split()
-    return sum(score_map.get(r, 0) for r in results)
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Prediction canceled.")
+    return ConversationHandler.END
 
-# Predict command (when user sends data)
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    lines = text.strip().split('\n')
-    data = {}
-
-    for line in lines:
-        if ':' in line:
-            key, value = line.split(':', 1)
-            data[key.strip().lower()] = value.strip()
-
-    try:
-        team1 = data['team 1']
-        team2 = data['team 2']
-        league = data.get('league importance', 'Unknown')
-        goals_scored = [float(x.strip()) for x in data.get('avg goals scored', '0, 0').split(',')]
-        goals_conceded = [float(x.strip()) for x in data.get('avg goals conceded', '0, 0').split(',')]
-        head_to_head = data.get('head to head', 'N/A')
-        home_form = data.get('home form', '')
-        away_form = data.get('away form', '')
-
-        home_score = score_form(home_form)
-        away_score = score_form(away_form)
-
-        # Simple prediction logic
-        t1_strength = goals_scored[0] - goals_conceded[0] + home_score
-        t2_strength = goals_scored[1] - goals_conceded[1] + away_score
-
-        if t1_strength > t2_strength:
-            prediction = f"{team1} is more likely to win."
-        elif t2_strength > t1_strength:
-            prediction = f"{team2} is more likely to win."
-        else:
-            prediction = "It could be a draw."
-
-        reply = (
-            f"📊 *Match Preview:*\n"
-            f"{team1} vs {team2}\n"
-            f"🏆 League: {league}\n\n"
-            f"🔢 Avg Goals Scored: {team1}: {goals_scored[0]}, {team2}: {goals_scored[1]}\n"
-            f"🛡 Avg Goals Conceded: {team1}: {goals_conceded[0]}, {team2}: {goals_conceded[1]}\n"
-            f"🔙 Head to Head: {head_to_head}\n"
-            f"🏠 Home Form ({team1}): {home_form} → Score: {home_score}\n"
-            f"🚗 Away Form ({team2}): {away_form} → Score: {away_score}\n\n"
-            f"💡 *Prediction:* {prediction}"
-        )
-
-        await update.message.reply_text(reply, parse_mode='Markdown')
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error parsing input. Make sure you follow the format.\n\nError: {str(e)}")
-
-# Main entry point
-if __name__ == '__main__':
-    import os
-    from dotenv import load_dotenv
-
-    load_dotenv()
+def main():
     TOKEN = os.getenv("BOT_TOKEN")
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN is not set in environment variables")
 
     app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Bot is running...")
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            TEAM_NAMES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_team_names)],
+            LEAGUE_STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_league_status)],
+            AVG_GOALS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_avg_goals)],
+            HEAD_TO_HEAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_head_to_head)],
+            FORM: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_form)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    app.add_handler(conv_handler)
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
