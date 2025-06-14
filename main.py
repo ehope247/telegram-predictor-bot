@@ -1,75 +1,84 @@
 import os
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, filters, ConversationHandler
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, ConversationHandler, filters
 
-BOT_TOKEN = os.environ.get("Telegram_bot")
-
-# Define conversation stages
-MATCH_INPUT, SAME_LEAGUE, HOME_STATS, AWAY_STATS = range(4)
-
-# Store user data during conversation
-user_data = {}
+TEAM1, TEAM2, LEAGUE, GOALS, H2H, FORM = range(6)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to the Match Prediction Bot!\nSend the match like this:\n`Manchester United vs Liverpool`")
-    return MATCH_INPUT
+    await update.message.reply_text("Welcome to Football Predictor Bot! ⚽\n\nLet's begin.\n\nWhat is Team 1 name?")
+    return TEAM1
 
-async def match_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data["match"] = update.message.text
-    await update.message.reply_text("Are both teams in the same league? (Yes/No)")
-    return SAME_LEAGUE
+async def team1(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["team1"] = update.message.text
+    await update.message.reply_text("What is Team 2 name?")
+    return TEAM2
 
-async def same_league(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data["same_league"] = update.message.text.lower()
-    if user_data["same_league"] == "yes":
-        await update.message.reply_text(
-            "Send stats for the **home team** like this:\n"
-            "`TeamName\nTable 1\nAvg goal 2.1\nAvg conceded 1.1\nHead to head draw 1, win 2, lose 1\nLast five match: LLDDE`"
-        )
-        return HOME_STATS
-    else:
-        await update.message.reply_text(
-            "Send stats for the **home team** like this:\n"
-            "`TeamName\nAvg goal 2.1\nAvg conceded 1.1\nLast five match: LLDDE`"
-        )
-        return HOME_STATS
+async def team2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["team2"] = update.message.text
+    await update.message.reply_text("What is the league status? (e.g., Top of the league, Relegation battle)")
+    return LEAGUE
 
-async def home_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data["home_stats"] = update.message.text
-    await update.message.reply_text("Now send stats for the **away team** in the same format.")
-    return AWAY_STATS
+async def league(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["league"] = update.message.text
+    await update.message.reply_text("Average goals scored/conceded by each team?")
+    return GOALS
 
-async def away_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data["away_stats"] = update.message.text
-    # Dummy prediction logic
-    await update.message.reply_text("📊 Analyzing stats...")
-    await update.message.reply_text(
-        f"✅ Prediction for {user_data['match']}:\n"
-        f"🏆 Likely Winner: Home Team\n"
-        f"📈 Market Tips: Over 2.5 Goals, Both Teams to Score"
-    )
+async def goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["goals"] = update.message.text
+    await update.message.reply_text("Head-to-head performance? (e.g., Team1 won 3 of last 5)")
+    return H2H
+
+async def h2h(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["h2h"] = update.message.text
+    await update.message.reply_text("Recent form of both teams? (e.g., WWWLL vs LDDWW)")
+    return FORM
+
+async def form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["form"] = update.message.text
+
+    # Now generate prediction (this is a dummy logic; you can improve it)
+    team1 = context.user_data["team1"]
+    team2 = context.user_data["team2"]
+    league = context.user_data["league"]
+    goals = context.user_data["goals"]
+    h2h = context.user_data["h2h"]
+    form = context.user_data["form"]
+
+    prediction = f"""📊 Prediction Summary:
+
+🏟️ Match: {team1} vs {team2}
+📌 League Status: {league}
+⚽ Avg Goals: {goals}
+🤝 Head-to-Head: {h2h}
+📈 Form: {form}
+
+💡 Prediction: {team1 if 'W' in form[:3] else team2} might have an edge!
+(This is a basic prediction. Improve logic as needed.)
+"""
+    await update.message.reply_text(prediction)
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Prediction canceled.")
+    await update.message.reply_text("Prediction cancelled.")
     return ConversationHandler.END
 
-if __name__ == '__main__':
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+if __name__ == "__main__":
+    TOKEN = os.getenv("Telegram_bot")  # Make sure the key name matches Render's environment variable
+    app = ApplicationBuilder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+        entry_points=[CommandHandler("start", start)],
         states={
-            MATCH_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, match_input)],
-            SAME_LEAGUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, same_league)],
-            HOME_STATS: [MessageHandler(filters.TEXT & ~filters.COMMAND, home_stats)],
-            AWAY_STATS: [MessageHandler(filters.TEXT & ~filters.COMMAND, away_stats)],
+            TEAM1: [MessageHandler(filters.TEXT & ~filters.COMMAND, team1)],
+            TEAM2: [MessageHandler(filters.TEXT & ~filters.COMMAND, team2)],
+            LEAGUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, league)],
+            GOALS: [MessageHandler(filters.TEXT & ~filters.COMMAND, goals)],
+            H2H: [MessageHandler(filters.TEXT & ~filters.COMMAND, h2h)],
+            FORM: [MessageHandler(filters.TEXT & ~filters.COMMAND, form)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(conv_handler)
+    print("Bot is running...")
     app.run_polling()
