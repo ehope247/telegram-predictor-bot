@@ -3,7 +3,6 @@ import asyncio
 from flask import Flask
 from telegram import Update
 from telegram.ext import (
-    Application,
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
@@ -12,15 +11,19 @@ from telegram.ext import (
     filters,
 )
 
+# === FLASK SETUP ===
 app = Flask(__name__)
 
-# Prediction steps
+@app.route('/')
+def index():
+    return 'Bot is live! ✅'
+
+# === TELEGRAM CONVO SETUP ===
 TEAM_NAMES, GOALS_SCORED, GOALS_CONCEDED, LAST_5_FORM, H2H_RESULTS = range(5)
 user_data = {}
 
-# Telegram bot conversation handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to the Football Predictor Bot!\nEnter team names (e.g. Arsenal vs Chelsea):")
+    await update.message.reply_text("Welcome to the Football Predictor Bot!\n\nEnter team names (e.g. Arsenal vs Chelsea):")
     return TEAM_NAMES
 
 async def team_names(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -46,6 +49,7 @@ async def last_5_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def h2h_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data['h2h'] = update.message.text
 
+    # Basic prediction logic
     goals1, goals2 = map(float, user_data['goals_scored'].split("vs"))
     conceded1, conceded2 = map(float, user_data['goals_conceded'].split("vs"))
     team1_wins = int(user_data['form'].split("vs")[0].strip().split()[0])
@@ -78,18 +82,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Prediction cancelled.")
     return ConversationHandler.END
 
-@app.route('/')
-def home():
-    return 'Bot is live!'
-
-# Run Telegram bot
+# === TELEGRAM BOT RUNNER ===
 async def run_bot():
-    BOT_TOKEN = os.environ.get("BOT_TOKEN")
-    if not BOT_TOKEN:
-        print("Error: BOT_TOKEN not found in environment")
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        print("❌ BOT_TOKEN not found in environment")
         return
 
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application = ApplicationBuilder().token(token).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -106,12 +106,12 @@ async def run_bot():
     application.add_handler(conv_handler)
     await application.initialize()
     await application.start()
-    print("✅ Telegram Bot started")
+    print("✅ Bot started polling...")
     await application.updater.start_polling()
     await application.updater.idle()
 
-# Run both Flask and bot
-if __name__ == '__main__':
+# === ENTRY POINT ===
+if __name__ == "__main__":
     import threading
-    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000)).start()
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=10000)).start()
     asyncio.run(run_bot())
