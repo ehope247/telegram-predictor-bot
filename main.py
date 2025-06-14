@@ -1,84 +1,90 @@
-import os
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, ConversationHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-TEAM1, TEAM2, LEAGUE, GOALS, H2H, FORM = range(6)
-
+# Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to Football Predictor Bot! ⚽\n\nLet's begin.\n\nWhat is Team 1 name?")
-    return TEAM1
-
-async def team1(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["team1"] = update.message.text
-    await update.message.reply_text("What is Team 2 name?")
-    return TEAM2
-
-async def team2(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["team2"] = update.message.text
-    await update.message.reply_text("What is the league status? (e.g., Top of the league, Relegation battle)")
-    return LEAGUE
-
-async def league(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["league"] = update.message.text
-    await update.message.reply_text("Average goals scored/conceded by each team?")
-    return GOALS
-
-async def goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["goals"] = update.message.text
-    await update.message.reply_text("Head-to-head performance? (e.g., Team1 won 3 of last 5)")
-    return H2H
-
-async def h2h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["h2h"] = update.message.text
-    await update.message.reply_text("Recent form of both teams? (e.g., WWWLL vs LDDWW)")
-    return FORM
-
-async def form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["form"] = update.message.text
-
-    # Now generate prediction (this is a dummy logic; you can improve it)
-    team1 = context.user_data["team1"]
-    team2 = context.user_data["team2"]
-    league = context.user_data["league"]
-    goals = context.user_data["goals"]
-    h2h = context.user_data["h2h"]
-    form = context.user_data["form"]
-
-    prediction = f"""📊 Prediction Summary:
-
-🏟️ Match: {team1} vs {team2}
-📌 League Status: {league}
-⚽ Avg Goals: {goals}
-🤝 Head-to-Head: {h2h}
-📈 Form: {form}
-
-💡 Prediction: {team1 if 'W' in form[:3] else team2} might have an edge!
-(This is a basic prediction. Improve logic as needed.)
-"""
-    await update.message.reply_text(prediction)
-    return ConversationHandler.END
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Prediction cancelled.")
-    return ConversationHandler.END
-
-if __name__ == "__main__":
-    TOKEN = os.getenv("Telegram_bot")  # Make sure the key name matches Render's environment variable
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            TEAM1: [MessageHandler(filters.TEXT & ~filters.COMMAND, team1)],
-            TEAM2: [MessageHandler(filters.TEXT & ~filters.COMMAND, team2)],
-            LEAGUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, league)],
-            GOALS: [MessageHandler(filters.TEXT & ~filters.COMMAND, goals)],
-            H2H: [MessageHandler(filters.TEXT & ~filters.COMMAND, h2h)],
-            FORM: [MessageHandler(filters.TEXT & ~filters.COMMAND, form)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
+    await update.message.reply_text(
+        "Welcome to Football Predictor Bot!\n\n"
+        "Please enter match details in this format:\n\n"
+        "Team 1: Chelsea\n"
+        "Team 2: Arsenal\n"
+        "League Importance: High\n"
+        "Avg Goals Scored: 1.8, 2.0\n"
+        "Avg Goals Conceded: 1.2, 1.4\n"
+        "Head to Head: Chelsea 2-1 Arsenal\n"
+        "Home Form: W W D L W\n"
+        "Away Form: L D W W L"
     )
 
-    app.add_handler(conv_handler)
+# Function to score form string
+def score_form(form_str):
+    score_map = {'W': 3, 'D': 1, 'L': 0}
+    results = form_str.strip().upper().split()
+    return sum(score_map.get(r, 0) for r in results)
+
+# Predict command (when user sends data)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    lines = text.strip().split('\n')
+    data = {}
+
+    for line in lines:
+        if ':' in line:
+            key, value = line.split(':', 1)
+            data[key.strip().lower()] = value.strip()
+
+    try:
+        team1 = data['team 1']
+        team2 = data['team 2']
+        league = data.get('league importance', 'Unknown')
+        goals_scored = [float(x.strip()) for x in data.get('avg goals scored', '0, 0').split(',')]
+        goals_conceded = [float(x.strip()) for x in data.get('avg goals conceded', '0, 0').split(',')]
+        head_to_head = data.get('head to head', 'N/A')
+        home_form = data.get('home form', '')
+        away_form = data.get('away form', '')
+
+        home_score = score_form(home_form)
+        away_score = score_form(away_form)
+
+        # Simple prediction logic
+        t1_strength = goals_scored[0] - goals_conceded[0] + home_score
+        t2_strength = goals_scored[1] - goals_conceded[1] + away_score
+
+        if t1_strength > t2_strength:
+            prediction = f"{team1} is more likely to win."
+        elif t2_strength > t1_strength:
+            prediction = f"{team2} is more likely to win."
+        else:
+            prediction = "It could be a draw."
+
+        reply = (
+            f"📊 *Match Preview:*\n"
+            f"{team1} vs {team2}\n"
+            f"🏆 League: {league}\n\n"
+            f"🔢 Avg Goals Scored: {team1}: {goals_scored[0]}, {team2}: {goals_scored[1]}\n"
+            f"🛡 Avg Goals Conceded: {team1}: {goals_conceded[0]}, {team2}: {goals_conceded[1]}\n"
+            f"🔙 Head to Head: {head_to_head}\n"
+            f"🏠 Home Form ({team1}): {home_form} → Score: {home_score}\n"
+            f"🚗 Away Form ({team2}): {away_form} → Score: {away_score}\n\n"
+            f"💡 *Prediction:* {prediction}"
+        )
+
+        await update.message.reply_text(reply, parse_mode='Markdown')
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error parsing input. Make sure you follow the format.\n\nError: {str(e)}")
+
+# Main entry point
+if __name__ == '__main__':
+    import os
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    TOKEN = os.getenv("BOT_TOKEN")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
     print("Bot is running...")
     app.run_polling()
