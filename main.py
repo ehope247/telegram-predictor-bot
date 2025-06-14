@@ -3,81 +3,66 @@ import re
 import os
 from flask import Flask
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from telegram.constants import ParseMode
 
-# Configure logging
+# Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Create Flask app
+# Flask for health check
 app = Flask(__name__)
+@app.route('/')
+def index():
+    return "Bot is alive!"
 
-@app.route("/")
-def health_check():
-    return "Bot is live!"
-
-# /start command handler
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    instructions = (
-        "Please enter the match data in the following format:\n"
+# /start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "Send match data like this:\n\n"
         "*Team A* vs *Team B*\n"
-        "Avg goals scored A, Avg goals conceded A, Avg goals scored B, Avg goals conceded B\n"
-        "Form A (last 5) vs Form B (last 5) (e.g., WWDWL vs LWDWL)\n"
-        "Head-to-head results (e.g., WWLDW)\n\n"
-        "*Example:* \n"
-        "Aston Villa vs Liverpool\n"
         "1.2, 1.3, 1.5, 1.1\n"
         "WWDWL vs LWDWL\n"
-        "WWLDW"
+        "WWLDW\n\n"
+        "Use /start to see format again."
     )
-    await update.message.reply_text(instructions, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
-# Prediction message handler
-async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text.strip()
+# Prediction handler
+async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Find first numeric value to separate team names from stats
+        text = update.message.text.strip()
         match = re.search(r"[0-9]+(?:\.[0-9]+)?", text)
         if not match:
-            raise ValueError("No numeric stats found in the message.")
-        team_section = text[: match.start()]
-        # Parse team names around " vs "
-        team_split = re.split(r"\s+vs\s+", team_section, flags=re.IGNORECASE)
-        if len(team_split) < 2:
-            raise ValueError("Format error: could not split team names.")
-        teamA = team_split[0].strip()
-        teamB = team_split[1].strip()
+            raise ValueError("Missing stats.")
+        
+        team_part = text[:match.start()]
+        teams = re.split(r"\s+vs\s+", team_part, flags=re.IGNORECASE)
+        if len(teams) != 2:
+            raise ValueError("Invalid team names.")
+        teamA, teamB = teams[0].strip(), teams[1].strip()
 
-        # Parse numeric values (avg goals scored/conceded)
         nums = re.findall(r"[0-9]+(?:\.[0-9]+)?", text)
         if len(nums) < 4:
-            raise ValueError("Not enough numeric values provided for goals.")
+            raise ValueError("Not enough goal stats.")
         gsa, gca, gsb, gcb = map(float, nums[:4])
 
-        # Parse form sequences (last 5 games, e.g., "WWDWL vs LWDWL")
         forms = re.findall(r"\b[WDL]{5}\b", text.upper())
         if len(forms) < 3:
-            raise ValueError("Could not find valid form or head-to-head data.")
-        formA, formB, h2h = forms[0], forms[1], forms[2]
+            raise ValueError("Missing form or H2H data.")
+        formA, formB, h2h = forms[:3]
 
-        # Compute expected goals (simple model: average of attack and defense strengths)
-        expA = (gsa + gcb) / 2.0
-        expB = (gsb + gca) / 2.0
+        # Predictions
+        expA = (gsa + gcb) / 2
+        expB = (gsb + gca) / 2
+        form_diff = formA.count("W") - formB.count("W")
+        h2h_diff = h2h.count("W") - h2h.count("L")
 
-        # Adjust for recent form (difference in number of wins)
-        diff_form = formA.count('W') - formB.count('W')
+        finalA = expA + 0.1 * form_diff + 0.1 * h2h_diff
+        finalB = expB - 0.1 * form_diff - 0.1 * h2h_diff
 
-        # Adjust for head-to-head (Team A perspective: W vs L)
-        diff_h2h = h2h.count('W') - h2h.count('L')
-
-        # Final estimated scores with small adjustments
-        finalA = expA + 0.1 * diff_form + 0.1 * diff_h2h
-        finalB = expB - 0.1 * diff_form - 0.1 * diff_h2h
-
-        # Predict match result
         if finalA > finalB + 0.25:
             result = "Home Win"
         elif finalB > finalA + 0.25:
@@ -85,48 +70,35 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             result = "Draw"
 
-        # Predict Over/Under 2.5 goals
-        total_exp = finalA + finalB
-        ou = "Over 2.5" if total_exp >= 2.5 else "Under 2.5"
-
-        # Predict Both Teams to Score (BTTS)
+        ou = "Over 2.5" if finalA + finalB >= 2.5 else "Under 2.5"
         btts = "Yes" if finalA > 0.5 and finalB > 0.5 else "No"
 
-        # Format Markdown response
-        response = (
+        prediction = (
             f"*Match:* {teamA} vs {teamB}\n"
-            f"*Result:* {result}\n"
-            f"*Over/Under 2.5 Goals:* {ou}\n"
-            f"*Both Teams to Score:* {btts}"
+            f"*Prediction:* {result}\n"
+            f"*Over/Under 2.5:* {ou}\n"
+            f"*BTTS:* {btts}"
         )
-        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(prediction, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
-        logger.error("Error parsing or predicting: %s", e)
-        error_msg = (
-            "⚠️ *Invalid input format.*\n\n"
-            "Please ensure you provide match data in the specified format. Use /start for help."
-        )
-        await update.message.reply_text(error_msg, parse_mode=ParseMode.MARKDOWN)
+        logger.error(f"Error: {e}")
+        await update.message.reply_text("⚠️ Please use the correct format. Use /start for help.")
 
+# Run bot
 def main():
     token = os.environ.get("BOT_TOKEN")
     if not token:
-        logger.error("BOT_TOKEN not set.")
+        logger.error("BOT_TOKEN not set")
         return
 
-    # Build the Telegram application
     application = ApplicationBuilder().token(token).build()
-    # Register handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, predict))
 
-    # Start bot polling in a separate thread
     import threading
-    bot_thread = threading.Thread(target=lambda: application.run_polling(bootstrap_retries=0))
-    bot_thread.start()
+    threading.Thread(target=lambda: application.run_polling()).start()
 
-    # Start Flask app (health check)
-    port = int(os.environ.get("PORT", "5000"))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
