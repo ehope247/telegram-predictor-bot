@@ -31,7 +31,7 @@ async def team1(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def team2(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['team2'] = update.message.text
-    await update.message.reply_text("Now enter match stats in this format:
+    await update.message.reply_text("Now enter match stats in this format:\nTeam A Avg Goals Scored, Team A Avg Goals Conceded, Team A Last 5 Form, Team B Avg Goals Scored, Team B Avg Goals Conceded, Team B Last 5 Form, Head-to-Head (e.g., WWDLD)")
 
 "
                                     "avg_goals_team1, avg_goals_conceded_team1, form_team1 (WDLWW), "
