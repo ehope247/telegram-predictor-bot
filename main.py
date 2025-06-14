@@ -12,29 +12,33 @@ from telegram.ext import (
     filters,
 )
 
-# --- Standard Setup ---
+# --- Standard Setup: Logging ---
+# This helps us see what the bot is doing in the Render logs.
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# --- The Flask Web Server (for Render) ---
-# This part keeps the service "Live"
+
+# --- The Flask Web Server ---
+# This part is ESSENTIAL for Render's Free Web Service.
+# It opens a "port" to listen for web traffic, which Render needs to see.
+# Its only job is to respond "I'm alive!" when UptimeRobot visits.
 app = Flask(__name__)
 
 @app.route('/')
 def hello_world():
     return 'Bot is alive and polling!'
 
-# ----------------------------------------
 
-# --- Your Bot's Logic (No changes needed) ---
-# ... (All your existing functions: get_prediction, start, team_a, etc., go here)
-# --- State Definitions ---
+# --- Your Bot's Logic and Functions ---
+
+# State Definitions for the conversation
 TEAM_A, TEAM_B, AVG_GOAL_A, AVG_CONCEDE_A, FORM_A, \
 AVG_GOAL_B, AVG_CONCEDE_B, FORM_B, H2H = range(9)
 
 def get_prediction(stats: dict) -> str:
+    """Calculates the match prediction based on user-provided stats."""
     try:
         weights = {'avg_goal': 1.5, 'avg_concede': -1.3, 'form': 2.0, 'h2h': 1.2}
         h2h_a, h2h_b = map(int, stats['h2h'].split('-'))
@@ -42,22 +46,27 @@ def get_prediction(stats: dict) -> str:
         total_goals_conceded = float(stats['avg_concede_a']) + float(stats['avg_concede_b'])
         score_a = (float(stats['avg_goal_a']) * weights['avg_goal'] + float(stats['avg_concede_a']) * weights['avg_concede'] + int(stats['form_a']) * weights['form'] + h2h_a * weights['h2h'])
         score_b = (float(stats['avg_goal_b']) * weights['avg_goal'] + float(stats['avg_concede_b']) * weights['avg_concede'] + int(stats['form_b']) * weights['form'] + h2h_b * weights['h2h'])
+        
         prediction = f"--- Prediction for {stats['team_a']} vs {stats['team_b']} ---\n\n"
         difference = score_a - score_b
+
         if difference > 2.5: prediction += f"🏆 Main Outcome: Strong win for {stats['team_a']}.\n"
         elif difference > 0.5: prediction += f"🏆 Main Outcome: {stats['team_a']} has a slight advantage.\n"
         elif difference < -2.5: prediction += f"🏆 Main Outcome: Strong win for {stats['team_b']}.\n"
         elif difference < -0.5: prediction += f"🏆 Main Outcome: {stats['team_b']} has a slight advantage.\n"
         else: prediction += "🏆 Main Outcome: The match is likely to be a draw.\n"
+
         if total_goals_scored > 3.0 or total_goals_conceded > 3.0: prediction += "⚽ Goals Market: Likely Over 2.5 goals.\n"
         elif total_goals_scored < 2.2 and total_goals_conceded < 2.2: prediction += "⚽ Goals Market: Likely Under 2.5 goals.\n"
         else: prediction += "⚽ Goals Market: Unclear, could go either way.\n"
+        
         if float(stats['avg_goal_a']) > 1 and float(stats['avg_goal_b']) > 1 and float(stats['avg_concede_a']) > 0.8 and float(stats['avg_concede_b']) > 0.8: prediction += "🥅 Both Teams to Score: Yes (GG).\n"
         else: prediction += "🥅 Both Teams to Score: No (NG).\n"
+        
         return prediction
     except Exception as e:
         logger.error(f"Error during prediction: {e}")
-        return "Sorry, an error occurred. Please /start again."
+        return "Sorry, an error occurred during calculation. Please /start again."
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Hi! I'm your match prediction bot.\n\nSend /cancel to stop.\n\nWhat is the name of the home team?")
@@ -141,19 +150,15 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ----------------------------------------
-
 def run_bot():
-    """Sets up and runs the bot."""
+    """This function contains all the bot's logic and setup."""
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     if not TOKEN:
-        logger.critical("TELEGRAM_TOKEN not found!")
-        return
+        logger.critical("CRITICAL: TELEGRAM_TOKEN environment variable not found!")
+        return # Stop the bot thread if the token is missing
 
-    # Create the Application and pass it your bot's token.
     application = Application.builder().token(TOKEN).build()
-
-    # Add conversation handler with the states
+    
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -171,16 +176,15 @@ def run_bot():
     )
 
     application.add_handler(conv_handler)
-
-    # Run the bot until the user presses Ctrl-C
+    
     logger.info("Starting bot polling in background thread...")
     application.run_polling(drop_pending_updates=True)
 
 
-# --- The Magic Part ---
-# This code runs AUTOMATICALLY when gunicorn imports the file.
-# We start the bot in a background thread.
+# --- The Magic Part that Starts Everything ---
+# This code runs AUTOMATICALLY when Render starts the web server.
+# It creates and starts a new "thread" (a separate task) to run our bot.
+# This allows the Web Server and the Bot to run at the same time.
 logger.info("Setting up bot thread...")
 bot_thread = threading.Thread(target=run_bot)
 bot_thread.start()
-# ----------------------
