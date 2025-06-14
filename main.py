@@ -1,7 +1,6 @@
 import os
 import logging
 import threading
-from waitress import serve
 from flask import Flask
 from telegram import Update
 from telegram.ext import (
@@ -13,26 +12,28 @@ from telegram.ext import (
     filters,
 )
 
-# --- Flask Web Server Setup ---
-app = Flask(__name__)
-
-@app.route('/')
-def hello_world():
-    return 'Bot is alive!'
-
-# -----------------------------
-
-# Enable logging
+# --- Standard Setup ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
+# --- The Flask Web Server (for Render) ---
+# This part keeps the service "Live"
+app = Flask(__name__)
+
+@app.route('/')
+def hello_world():
+    return 'Bot is alive and polling!'
+
+# ----------------------------------------
+
+# --- Your Bot's Logic (No changes needed) ---
+# ... (All your existing functions: get_prediction, start, team_a, etc., go here)
 # --- State Definitions ---
 TEAM_A, TEAM_B, AVG_GOAL_A, AVG_CONCEDE_A, FORM_A, \
 AVG_GOAL_B, AVG_CONCEDE_B, FORM_B, H2H = range(9)
 
-# --- Prediction Logic (No changes) ---
 def get_prediction(stats: dict) -> str:
     try:
         weights = {'avg_goal': 1.5, 'avg_concede': -1.3, 'form': 2.0, 'h2h': 1.2}
@@ -58,7 +59,6 @@ def get_prediction(stats: dict) -> str:
         logger.error(f"Error during prediction: {e}")
         return "Sorry, an error occurred. Please /start again."
 
-# --- Bot Handlers (No changes) ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Hi! I'm your match prediction bot.\n\nSend /cancel to stop.\n\nWhat is the name of the home team?")
     return TEAM_A
@@ -141,15 +141,19 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-async def run_bot():
-    """This function now runs the Telegram bot asynchronously."""
+# ----------------------------------------
+
+def run_bot():
+    """Sets up and runs the bot."""
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     if not TOKEN:
-        logger.critical("CRITICAL: TELEGRAM_TOKEN not found.")
+        logger.critical("TELEGRAM_TOKEN not found!")
         return
 
+    # Create the Application and pass it your bot's token.
     application = Application.builder().token(TOKEN).build()
 
+    # Add conversation handler with the states
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -167,22 +171,16 @@ async def run_bot():
     )
 
     application.add_handler(conv_handler)
-    logger.info("Bot is starting to poll...")
-    # This now uses the shared asyncio event loop
-    await application.run_polling(drop_pending_updates=True)
 
-def run_web_server():
-    """This function runs the Flask app using waitress."""
-    # The port must be an integer, not a string
-    port = int(os.environ.get('PORT', 5000))
-    serve(app, host='0.0.0.0', port=port)
+    # Run the bot until the user presses Ctrl-C
+    logger.info("Starting bot polling in background thread...")
+    application.run_polling(drop_pending_updates=True)
 
-if __name__ == "__main__":
-    # Start the web server in a separate thread
-    web_thread = threading.Thread(target=run_web_server)
-    web_thread.start()
 
-    # Run the bot's async function in the main thread
-    # We must import and use asyncio to run the async function correctly
-    import asyncio
-    asyncio.run(run_bot())
+# --- The Magic Part ---
+# This code runs AUTOMATICALLY when gunicorn imports the file.
+# We start the bot in a background thread.
+logger.info("Setting up bot thread...")
+bot_thread = threading.Thread(target=run_bot)
+bot_thread.start()
+# ----------------------
