@@ -1,6 +1,7 @@
 import os
 import logging
 import threading
+from waitress import serve
 from flask import Flask
 from telegram import Update
 from telegram.ext import (
@@ -13,18 +14,13 @@ from telegram.ext import (
 )
 
 # --- Flask Web Server Setup ---
-# This part is just to keep the Render Free Web Service alive
 app = Flask(__name__)
 
 @app.route('/')
 def hello_world():
     return 'Bot is alive!'
 
-def run_flask():
-    # The host must be '0.0.0.0' to be accessible by Render
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
 # -----------------------------
-
 
 # Enable logging
 logging.basicConfig(
@@ -32,13 +28,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- State Definitions for Conversation ---
+# --- State Definitions ---
 TEAM_A, TEAM_B, AVG_GOAL_A, AVG_CONCEDE_A, FORM_A, \
 AVG_GOAL_B, AVG_CONCEDE_B, FORM_B, H2H = range(9)
 
-# --- Your Bot's Prediction Logic (No changes here) ---
+# --- Prediction Logic (No changes) ---
 def get_prediction(stats: dict) -> str:
-    # This function remains exactly the same as before
     try:
         weights = {'avg_goal': 1.5, 'avg_concede': -1.3, 'form': 2.0, 'h2h': 1.2}
         h2h_a, h2h_b = map(int, stats['h2h'].split('-'))
@@ -46,33 +41,24 @@ def get_prediction(stats: dict) -> str:
         total_goals_conceded = float(stats['avg_concede_a']) + float(stats['avg_concede_b'])
         score_a = (float(stats['avg_goal_a']) * weights['avg_goal'] + float(stats['avg_concede_a']) * weights['avg_concede'] + int(stats['form_a']) * weights['form'] + h2h_a * weights['h2h'])
         score_b = (float(stats['avg_goal_b']) * weights['avg_goal'] + float(stats['avg_concede_b']) * weights['avg_concede'] + int(stats['form_b']) * weights['form'] + h2h_b * weights['h2h'])
-        
         prediction = f"--- Prediction for {stats['team_a']} vs {stats['team_b']} ---\n\n"
         difference = score_a - score_b
-
         if difference > 2.5: prediction += f"🏆 Main Outcome: Strong win for {stats['team_a']}.\n"
         elif difference > 0.5: prediction += f"🏆 Main Outcome: {stats['team_a']} has a slight advantage.\n"
         elif difference < -2.5: prediction += f"🏆 Main Outcome: Strong win for {stats['team_b']}.\n"
         elif difference < -0.5: prediction += f"🏆 Main Outcome: {stats['team_b']} has a slight advantage.\n"
         else: prediction += "🏆 Main Outcome: The match is likely to be a draw.\n"
-
         if total_goals_scored > 3.0 or total_goals_conceded > 3.0: prediction += "⚽ Goals Market: Likely Over 2.5 goals.\n"
         elif total_goals_scored < 2.2 and total_goals_conceded < 2.2: prediction += "⚽ Goals Market: Likely Under 2.5 goals.\n"
         else: prediction += "⚽ Goals Market: Unclear, could go either way.\n"
-        
         if float(stats['avg_goal_a']) > 1 and float(stats['avg_goal_b']) > 1 and float(stats['avg_concede_a']) > 0.8 and float(stats['avg_concede_b']) > 0.8: prediction += "🥅 Both Teams to Score: Yes (GG).\n"
         else: prediction += "🥅 Both Teams to Score: No (NG).\n"
-        
         return prediction
     except Exception as e:
         logger.error(f"Error during prediction: {e}")
-        return "Sorry, an error occurred during calculation. Please /start again."
+        return "Sorry, an error occurred. Please /start again."
 
-# --- All your bot handlers (start, team_a, etc.) go here ---
-# These functions are exactly the same as the last working version.
-# For brevity, I am not repeating them all, but they should be here.
-# Copy them from the previous correct version I sent.
-# ... (all the `async def start`, `async def team_a`, etc. functions)
+# --- Bot Handlers (No changes) ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Hi! I'm your match prediction bot.\n\nSend /cancel to stop.\n\nWhat is the name of the home team?")
     return TEAM_A
@@ -155,12 +141,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-
-def main_bot():
-    """This function sets up and runs the Telegram bot."""
+async def run_bot():
+    """This function now runs the Telegram bot asynchronously."""
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     if not TOKEN:
-        logger.critical("CRITICAL: TELEGRAM_TOKEN environment variable not found.")
+        logger.critical("CRITICAL: TELEGRAM_TOKEN not found.")
         return
 
     application = Application.builder().token(TOKEN).build()
@@ -182,13 +167,22 @@ def main_bot():
     )
 
     application.add_handler(conv_handler)
-    logger.info("Bot polling started...")
-    application.run_polling(drop_pending_updates=True)
+    logger.info("Bot is starting to poll...")
+    # This now uses the shared asyncio event loop
+    await application.run_polling(drop_pending_updates=True)
+
+def run_web_server():
+    """This function runs the Flask app using waitress."""
+    # The port must be an integer, not a string
+    port = int(os.environ.get('PORT', 5000))
+    serve(app, host='0.0.0.0', port=port)
 
 if __name__ == "__main__":
-    # Start the Flask web server in a new thread
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.start()
+    # Start the web server in a separate thread
+    web_thread = threading.Thread(target=run_web_server)
+    web_thread.start()
 
-    # Start the bot in the main thread
-    main_bot()
+    # Run the bot's async function in the main thread
+    # We must import and use asyncio to run the async function correctly
+    import asyncio
+    asyncio.run(run_bot())
