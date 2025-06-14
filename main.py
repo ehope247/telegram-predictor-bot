@@ -1,95 +1,85 @@
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from dotenv import load_dotenv
 import os
-import re
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, ConversationHandler
 
-load_dotenv()
+# Get token from environment variable
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is missing. Set it in Render.")
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-logging.basicConfig(level=logging.INFO)
+# Conversation states
+TEAM_NAMES, LEAGUE_STATUS, AVG_GOALS, HEAD_TO_HEAD, FORM = range(5)
 
-# --- Prediction logic ---
-def analyze_prediction(team_a, team_b, avg_goals_a, avg_goals_b, h2h_a, h2h_b, h2h_d, form_a, form_b):
-    result = "\n✅ Prediction Complete:\n"
-    result += f"\nTeams: {team_a} vs {team_b}"
-    result += f"\nAvg Goals: {team_a}: {avg_goals_a}, {team_b}: {avg_goals_b}"
-    result += f"\nHead-to-Head: {team_a} won {h2h_a}, {team_b} won {h2h_b}, Draws: {h2h_d}"
-    result += f"\nForm: {team_a}: {form_a}, {team_b}: {form_b}\n"
-
-    # Calculate form points (W=3, D=1, L=0)
-    def form_points(form):
-        return sum(3 if c == 'W' else 1 if c == 'D' else 0 for c in form)
-
-    points_a = form_points(form_a)
-    points_b = form_points(form_b)
-
-    # Winner prediction
-    if h2h_b > h2h_a and points_b > points_a:
-        likely_winner = team_b
-    elif h2h_a > h2h_b and points_a > points_b:
-        likely_winner = team_a
-    else:
-        likely_winner = "Draw or Tight Match"
-
-    result += f"\n🏆 Likely Winner: {likely_winner}"
-
-    # Double Chance
-    if likely_winner == team_a:
-        double_chance = f"{team_a} or Draw"
-    elif likely_winner == team_b:
-        double_chance = f"{team_b} or Draw"
-    else:
-        double_chance = f"Either team or Draw"
-    result += f"\n🎯 Double Chance: {double_chance}"
-
-    # Over/Under 2.5 Goals
-    avg_total_goals = (avg_goals_a + avg_goals_b) / 2
-    if avg_total_goals >= 2.5:
-        over_under_tip = "Over 2.5 Goals"
-    else:
-        over_under_tip = "Under 2.5 Goals"
-    result += f"\n⚽ Goal Market: {over_under_tip}"
-
-    return result
-
-# --- Bot Handlers ---
+# Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to the Stats Predictor Bot!\n\nPlease send the following details separated by commas:\n\nTeam A name, Team B name, League status (e.g. 'Yes'), Team A avg goals scored/conceded, Team B avg goals scored/conceded, H2H (A wins,B wins,draws), Team A form (e.g. WWWDL), Team B form (e.g. LLWDD)")
+    await update.message.reply_text("Welcome to Football Predictor Bot!\n\nPlease enter the **home team** and **away team** names (e.g., Arsenal vs Chelsea):")
+    return TEAM_NAMES
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message.text.strip()
-    try:
-        parts = [p.strip() for p in msg.split(',')]
-        if len(parts) != 8:
-            raise ValueError("Incorrect number of inputs. Please provide 8 comma-separated values.")
+# Step 1: Team names
+async def get_team_names(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["teams"] = update.message.text
+    await update.message.reply_text("What is the league status or importance of the match (e.g., Final, League, Friendly)?")
+    return LEAGUE_STATUS
 
-        team_a, team_b = parts[0], parts[1]
-        league_status = parts[2]
+# Step 2: League status
+async def get_league_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["league_status"] = update.message.text
+    await update.message.reply_text("What are the average goals scored/conceded by each team? (e.g., Arsenal: 1.8/1.1, Chelsea: 1.5/1.3)")
+    return AVG_GOALS
 
-        avg_goals = parts[3].split('/')
-        avg_goals_a = float(avg_goals[0])
-        avg_goals_b = float(avg_goals[1])
+# Step 3: Average goals
+async def get_avg_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["avg_goals"] = update.message.text
+    await update.message.reply_text("What’s their head-to-head record? (e.g., Arsenal won 3, Chelsea won 2, 2 draws)")
+    return HEAD_TO_HEAD
 
-        h2h = parts[5].split('/')
-        h2h_a, h2h_b, h2h_d = int(h2h[0]), int(h2h[1]), int(h2h[2])
+# Step 4: Head to Head
+async def get_head_to_head(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["head_to_head"] = update.message.text
+    await update.message.reply_text("What's the recent form for both teams? (e.g., Arsenal: W-W-L-D-W, Chelsea: L-D-W-W-L)")
+    return FORM
 
-        form_a = parts[6].upper()
-        form_b = parts[7].upper()
+# Step 5: Recent Form
+async def get_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["form"] = update.message.text
 
-        prediction = analyze_prediction(team_a, team_b, avg_goals_a, avg_goals_b, h2h_a, h2h_b, h2h_d, form_a, form_b)
-        await update.message.reply_text(prediction)
+    # Combine and make a dummy prediction
+    data = context.user_data
+    prediction = f"📊 Prediction Based on Your Input:\n\n" \
+                 f"🏟️ Match: {data['teams']}\n" \
+                 f"🏆 League Status: {data['league_status']}\n" \
+                 f"⚽ Avg Goals: {data['avg_goals']}\n" \
+                 f"📈 Head-to-Head: {data['head_to_head']}\n" \
+                 f"🔥 Recent Form: {data['form']}\n\n" \
+                 f"✅ **Prediction**: The match is likely to be close, but the team with better form and head-to-head advantage has the edge."
 
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {str(e)}\nPlease follow the format and try again.")
+    await update.message.reply_text(prediction)
+    return ConversationHandler.END
 
-# --- App Setup ---
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+# Cancel command
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Prediction cancelled. Send /start to begin again.")
+    return ConversationHandler.END
 
-if __name__ == '__main__':
-    print("Bot starting...")
+# Main function
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            TEAM_NAMES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_team_names)],
+            LEAGUE_STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_league_status)],
+            AVG_GOALS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_avg_goals)],
+            HEAD_TO_HEAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_head_to_head)],
+            FORM: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_form)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    app.add_handler(conv_handler)
+    print("Bot is running...")
     app.run_polling()
-    
+
+if __name__ == "__main__":
+    main()
